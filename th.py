@@ -6,7 +6,6 @@ import collections
 import difflib
 import operator
 
-# Data for one entry in the git index (.git/index)
 
 IndexEntry = collections.namedtuple('IndexEntry', [
     'ctime_s', 'ctime_n', 'mtime_s', 'mtime_n', 'dev', 'ino', 'mode', 'uid',
@@ -15,21 +14,18 @@ IndexEntry = collections.namedtuple('IndexEntry', [
 
 
 def read_file(path):
-    """Read contents of file at given path as bytes."""
 
     with open(path, 'rb') as f:
         return f.read()
 
 
 def write_file(path, data):
-    """Write data bytes to file at given path."""
 
     with open(path, 'wb') as f:
         f.write(data)
 
 
 def init(repo):
-    """Create directory for repo and initialize .git directory."""
 
     try:
         os.mkdir(repo)
@@ -47,9 +43,6 @@ def init(repo):
 
 
 def hash_object(data, obj_type, write=True):
-    """Compute hash of object data of given type and write to object store
-    if "write" is True. Return SHA-1 object hash as hex string.
-    """
 
     header = f"""{obj_type} {len(data)}""".encode()
     full_data = header + b'\x00' + data
@@ -63,10 +56,6 @@ def hash_object(data, obj_type, write=True):
 
 
 def find_object(sha1_prefix):
-    """Find object with given SHA-1 prefix and return path to object in object
-    store, or raise ValueError if there are no objects or multiple objects
-    with this prefix.
-    """
 
     if len(sha1_prefix) < 2:
         raise ValueError("hash prefix must be 2 or more characters")
@@ -85,9 +74,6 @@ def find_object(sha1_prefix):
 
 
 def read_object(sha1_prefix):
-    """Read object with given SHA-1 prefix and return tuple of
-    (object_type, data_bytes), or raise ValueError if not found.
-    """
 
     path = find_object(sha1_prefix)
     full_data = zlib.decompress(read_file(path))
@@ -104,7 +90,6 @@ def read_object(sha1_prefix):
 
 
 def read_index():
-    """Read git index file and return list of IndexEntry objects."""
 
     try:
         data = read_file(os.path.join('.git', 'index'))
@@ -139,9 +124,6 @@ def read_index():
 
 
 def ls_files(details=False):
-    """Print list of files in index (including mode, SHA-1, and stage number
-    if "details" is True).
-    """
 
     for entry in read_index():
         if details:
@@ -153,9 +135,6 @@ def ls_files(details=False):
 
 
 def get_status():
-    """Get status of working copy, return tuple of (changed_paths, new_paths,
-    deleted_paths).
-    """
 
     paths = set()
     for root, dirs, files in os.walk('.'):
@@ -178,7 +157,6 @@ def get_status():
 
 
 def status():
-    """Show status of working copy."""
 
     changed, new, deleted = get_status()
     if changed:
@@ -196,7 +174,6 @@ def status():
 
 
 def diff():
-    """Show diff of files changed (between index and working copy)."""
 
     changed, _, _ = get_status()
     entries_by_path = {e.path: e for e in read_index()}
@@ -218,7 +195,6 @@ def diff():
 
 
 def write_index(entries):
-    """Write list of IndexEntry objects to git index file."""
 
     packed_entries = []
     for entry in entries:
@@ -240,7 +216,6 @@ def write_index(entries):
 
 
 def add(paths):
-    """Add all file paths to git index."""
 
     paths = [p.replace('\\', '/') for p in paths]
     all_entries = read_index()
