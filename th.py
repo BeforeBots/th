@@ -6,7 +6,7 @@ import collections
 import difflib
 import operator
 import time
-
+import urllib
 
 IndexEntry = collections.namedtuple('IndexEntry', [
     'ctime_s', 'ctime_n', 'mtime_s', 'mtime_n', 'dev', 'ino', 'mode', 'uid',
@@ -252,19 +252,21 @@ def write_tree():
     return hash_object(b''.join(tree_entries), 'tree')
 
 
-def get_local_master_hash():
-    master_path = os.path.join('.git', 'refs', 'heads', 'main')
+def get_local_main_hash():
+    main_path = os.path.join('.git', 'refs', 'heads', 'main')
     try:
-        return read_file(master_path).decode().strip()
+        return read_file(main_path).decode().strip()
     except FileNotFoundError:
         return None
 
 
 def commit(message, author=None):
     tree = write_tree()
-    parent = get_local_master_hash()
+    parent = get_local_main_hash()
+    gan = os.environ['GIT_AUTHOR_NAME']
+    gae = os.environ['GIT_AUTHOR_EMAIL']
     if author is None:
-        author = f"""{os.environ['GIT_AUTHOR_NAME']} <{os.environ['GIT_AUTHOR_EMAIL']}>"""
+        author = f"""{gan} <{gae}>"""
     timestamp = int(time.mktime(time.localtime()))
     utc_offset = -time.timezone
     author_time = '{} {}{:02}{:02}'.format(
@@ -282,7 +284,56 @@ def commit(message, author=None):
     lines.append("")
     data = "\n".join(lines).encode()
     sha1 = hash_object(data, "commit")
-    master_path = os.path.join(".git", "refs", "heads", "main")
-    write_file(master_path, (sha1 + "\n").encode())
-    print('committed to master: {:7}'.format(sha1))
+    main_path = os.path.join(".git", "refs", "heads", "main")
+    write_file(main_path, (sha1 + "\n").encode())
+    print('committed to main: {:7}'.format(sha1))
     return sha1
+
+
+def extract_lines(data):
+    lines = []
+    i = 0
+    for _ in range(1000):
+        line_length = int(data[i:i + 4], 16)
+        line = data[i + 4:i + line_length]
+        lines.append(line)
+        if line_length == 0:
+            i += 4
+        else:
+            i += line_length
+        if i >= len(data):
+            break
+    return lines
+
+
+def build_lines_data(lines):
+    result = []
+    for line in lines:
+        result.append('{:04x}'.format(len(line) + 5).encode())
+        result.append(line)
+        result.append(b'\n')
+    result.append(b'0000')
+    return b''.join(result)
+
+
+def http_request(url, username, password, data=None):
+    password_manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    password_manager.add_password(None, url, username, password)
+    auth_handler = urllib.request.HTTPBasicAuthHandler(password_manager)
+    opener = urllib.request.build_opener(auth_handler)
+    f = opener.open(url, data=data)
+    return f.read()
+
+
+def get_remote_main_hash(git_url, username, password):
+    url = git_url + '/info/refs?service=git-receive-pack'
+    response = http_request(url, username, password)
+    lines = extract_lines(response)
+    assert lines[0] == b'# service=git-receive-pack\n'
+    assert lines[1] == b''
+    if lines[2][:40] == b'0' * 40:
+        return None
+    main_sha1, main_ref = lines[2].split(b'\x00')[0].split()
+    assert main_ref == b'refs/heads/main'
+    assert len(main_sha1) == 40
+    return main_sha1.decode()
