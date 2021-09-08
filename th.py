@@ -7,6 +7,17 @@ import difflib
 import operator
 import time
 import urllib
+import sys
+import argparse
+import stat
+import enum
+
+
+class ObjectType(enum.Enum):
+    commit = 1
+    tree = 2
+    blob = 3
+
 
 IndexEntry = collections.namedtuple('IndexEntry', [
     'ctime_s', 'ctime_n', 'mtime_s', 'mtime_n', 'dev', 'ino', 'mode', 'uid',
@@ -89,6 +100,36 @@ def read_object(sha1_prefix):
         data), f"""expected size -> {size} , got {len(data)} bytes"""
 
     return (obj_type, data)
+
+
+def cat_file(mode, sha1_prefix):
+    """Write the contents of (or info about) object with given SHA-1 prefix to
+    stdout. If mode is 'commit', 'tree', or 'blob', print raw data bytes of
+    object. If mode is 'size', print the size of the object. If mode is
+    'type', print the type of the object. If mode is 'pretty', print a
+    prettified version of the object.
+    """
+    obj_type, data = read_object(sha1_prefix)
+    if mode in ['commit', 'tree', 'blob']:
+        if obj_type != mode:
+            raise ValueError('expected object type {}, got {}'.format(
+                mode, obj_type))
+        sys.stdout.buffer.write(data)
+    elif mode == 'size':
+        print(len(data))
+    elif mode == 'type':
+        print(obj_type)
+    elif mode == 'pretty':
+        if obj_type in ['commit', 'blob']:
+            sys.stdout.buffer.write(data)
+        elif obj_type == 'tree':
+            for mode, path, sha1 in read_tree(data=data):
+                type_str = 'tree' if stat.S_ISDIR(mode) else 'blob'
+                print('{:06o} {} {}\t{}'.format(mode, type_str, sha1, path))
+        else:
+            assert False, 'unhandled object type {!r}'.format(obj_type)
+    else:
+        raise ValueError('unexpected mode {!r}'.format(mode))
 
 
 def read_index():
@@ -337,3 +378,199 @@ def get_remote_main_hash(git_url, username, password):
     assert main_ref == b'refs/heads/main'
     assert len(main_sha1) == 40
     return main_sha1.decode()
+
+
+def read_tree(sha1=None, data=None):
+    if sha1 is not None:
+        obj_type, data = read_object(sha1)
+        assert obj_type == 'tree'
+    elif data is None:
+        raise TypeError('must specify "sha1" or "data"')
+    i = 0
+    entries = []
+    for _ in range(1000):
+        end = data.find(b'\x00', i)
+        if end == -1:
+            break
+        mode_str, path = data[i:end].decode().split()
+        mode = int(mode_str, 8)
+        digest = data[end + 1:end + 21]
+        entries.append((mode, path, digest.hex()))
+        i = end + 1 + 20
+    return entries
+
+
+def find_tree_objects(tree_sha1):
+    objects = {tree_sha1}
+    for mode, path, sha1 in read_tree(sha1=tree_sha1):
+        if stat.S_ISDIR(mode):
+            objects.update(find_tree_objects(sha1))
+        else:
+            objects.add(sha1)
+    return objects
+
+
+def find_commit_objects(commit_sha1):
+    objects = {commit_sha1}
+    obj_type, commit = read_object(commit_sha1)
+    assert obj_type == 'commit'
+    lines = commit.decode().splitlines()
+    tree = next(lr[5:45] for lr in lines if lr.startswith('tree '))
+    objects.update(find_tree_objects(tree))
+    parents = (lr[7:47] for lr in lines if lr.startswith('parent '))
+    for parent in parents:
+        objects.update(find_commit_objects(parent))
+    return objects
+
+
+def find_missing_objects(local_sha1, remote_sha1):
+    local_objects = find_commit_objects(local_sha1)
+    if remote_sha1 is None:
+        return local_objects
+    remote_objects = find_commit_objects(remote_sha1)
+    return local_objects - remote_objects
+
+
+def encode_pack_object(obj):
+    obj_type, data = read_object(obj)
+    type_num = ObjectType[obj_type].value
+    size = len(data)
+    byte = (type_num << 4) | (size & 0x0f)
+    size >>= 4
+    header = []
+    while size:
+        header.append(byte | 0x80)
+        byte = size & 0x7f
+        size >>= 7
+    header.append(byte)
+    return bytes(header) + zlib.compress(data)
+
+
+def create_pack(objects):
+    header = struct.pack('!4sLL', b'PACK', 2, len(objects))
+    body = b''.join(encode_pack_object(o) for o in sorted(objects))
+    contents = header + body
+    sha1 = hashlib.sha1(contents).digest()
+    data = contents + sha1
+    return data
+
+
+def push(git_url, username=None, password=None):
+    if username is None:
+        username = os.environ['GIT_USERNAME']
+    if password is None:
+        password = os.environ['GIT_PASSWORD']
+    remote_sha1 = get_remote_main_hash(git_url, username, password)
+    local_sha1 = get_local_main_hash()
+    missing = find_missing_objects(local_sha1, remote_sha1)
+    print('updating remote main from {} to {} ({} object{})'.format(
+        remote_sha1 or 'no commits', local_sha1, len(missing),
+        '' if len(missing) == 1 else 's'))
+    lines = [
+        f"""{remote_sha1 or ('0' * 40)} {local_sha1} refs/heads/main\x00 report-status""".encode()]
+    data = build_lines_data(lines) + create_pack(missing)
+    url = git_url + '/git-receive-pack'
+    response = http_request(url, username, password, data=data)
+    lines = extract_lines(response)
+    assert len(lines) >= 2, \
+        'expected at least 2 lines, got {}'.format(len(lines))
+    assert lines[0] == b'unpack ok\n', \
+        "expected line 1 b'unpack ok', got: {}".format(lines[0])
+    assert lines[1] == b'ok refs/heads/main\n', \
+        "expected line 2 b'ok refs/heads/main\n', got: {}".format(lines[1])
+    return (remote_sha1, missing)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    sub_parsers = parser.add_subparsers(dest='command', metavar='command')
+    sub_parsers.required = True
+
+    sub_parser = sub_parsers.add_parser('add', help='add file(s) to index')
+    sub_parser.add_argument(
+        'paths', nargs='+', metavar='path', help='path(s) of files to add')
+
+    sub_parser = sub_parsers.add_parser('cat-file',
+                                        help='display contents of object')
+    valid_modes = ['commit', 'tree', 'blob', 'size', 'type', 'pretty']
+    sub_parser.add_argument('mode', choices=valid_modes,
+                            help='object type (commit, tree, blob) or display mode (size, '
+                            'type, pretty)')
+    sub_parser.add_argument('hash_prefix',
+                            help='SHA-1 hash (or hash prefix) of object to display')
+
+    sub_parser = sub_parsers.add_parser('commit',
+                                        help='commit current state of index to main branch')
+    sub_parser.add_argument('-a', '--author',
+                            help='commit author in format "A U Thor <author@example.com>" '
+                            '(uses GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL environment '
+                            'variables by default)')
+    sub_parser.add_argument('-m', '--message', required=True,
+                            help='text of commit message')
+
+    sub_parser = sub_parsers.add_parser('diff',
+                                        help='show diff of files changed (between index and working '
+                                        'copy)')
+
+    sub_parser = sub_parsers.add_parser('hash-object',
+                                        help='hash contents of given path (and optionally write to '
+                                        'object store)')
+    sub_parser.add_argument('path',
+                            help='path of file to hash')
+    sub_parser.add_argument('-t', choices=['commit', 'tree', 'blob'],
+                            default='blob', dest='type',
+                            help='type of object (default %(default)r)')
+    sub_parser.add_argument('-w', action='store_true', dest='write',
+                            help='write object to object store (as well as printing hash)')
+
+    sub_parser = sub_parsers.add_parser('init',
+                                        help='initialize a new repo')
+    sub_parser.add_argument('repo',
+                            help='directory name for new repo')
+
+    sub_parser = sub_parsers.add_parser('ls-files',
+                                        help='list files in index')
+    sub_parser.add_argument('-s', '--stage', action='store_true',
+                            help='show object details (mode, hash, and stage number) in '
+                            'addition to path')
+
+    sub_parser = sub_parsers.add_parser('push',
+                                        help='push main branch to given git server URL')
+    sub_parser.add_argument('git_url',
+                            help='URL of git repo, eg: https://github.com/BeforeBots/th.git')
+    sub_parser.add_argument('-p', '--password',
+                            help='password to use for authentication (uses GIT_PASSWORD '
+                            'environment variable by default)')
+    sub_parser.add_argument('-u', '--username',
+                            help='username to use for authentication (uses GIT_USERNAME '
+                            'environment variable by default)')
+
+    sub_parser = sub_parsers.add_parser('status',
+                                        help='show status of working copy')
+
+    args = parser.parse_args()
+    if args.command == 'add':
+        add(args.paths)
+    elif args.command == 'cat-file':
+        try:
+            cat_file(args.mode, args.hash_prefix)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            sys.exit(1)
+    elif args.command == 'commit':
+        commit(args.message, author=args.author)
+    elif args.command == 'diff':
+        diff()
+    elif args.command == 'hash-object':
+        sha1 = hash_object(read_file(args.path), args.type, write=args.write)
+        print(sha1)
+    elif args.command == 'init':
+        init(args.repo)
+    elif args.command == 'ls-files':
+        ls_files(details=args.stage)
+    elif args.command == 'push':
+        push(args.git_url, username=args.username, password=args.password)
+    elif args.command == 'status':
+        status()
+    else:
+        assert False, 'unexpected command {!r}'.format(args.command)
