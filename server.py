@@ -3,6 +3,7 @@ import socketserver
 import argparse
 import os
 from urllib import parse
+import json
 
 
 class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -13,14 +14,13 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         datalen = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(datalen).decode("utf-8")
-        print("I received this data ->", post_data)
-        payload_data = parse.parse_qs(post_data)["mykey"][0]
-        print("This is my parsed data -> ", payload_data)
-        resp = self.run_shell_command(payload_data)
+        pre_post_data = self.rfile.read(datalen)
+        jsonprepost = json.loads(pre_post_data, cls=json.JSONDecoder)
+        resp = self.run_shell_command(jsonprepost)
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(resp.encode("utf-8"))
+        final_resp = resp.encode("utf-8")
+        self.wfile.write(final_resp)
 
     def run_shell_command(self, res):
         stream = os.popen(res)
@@ -31,6 +31,7 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
 def run(host="localhost", port=8000):
     handler_object = MyHttpRequestHandler
     my_server = socketserver.TCPServer((host, port), handler_object)
+    print(f"Server started at port -> {port}")
     my_server.serve_forever()
 
 

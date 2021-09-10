@@ -1,5 +1,6 @@
 from urllib import request, parse
 
+# cd "E:\Tanweer Internships & Jobs\DSA\CP" && ls -l
 
 mypath = f"""E:\Tanweer Internships & Jobs\DSA\CP"""
 exe_command = {"mykey": f"""cd "{mypath}" && ls -l"""}
