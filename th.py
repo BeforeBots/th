@@ -473,15 +473,16 @@ def push(git_url, username=None, password=None):
     response = http_request(url, username, password, data=data)
     lines = extract_lines(response)
     assert len(lines) >= 2, \
-        'expected at least 2 lines, got {}'.format(len(lines))
+        f"""expected at least 2 lines, got {len(lines)}"""
     assert lines[0] == b'unpack ok\n', \
-        "expected line 1 b'unpack ok', got: {}".format(lines[0])
+        f"""expected line 1 b'unpack ok', got: {lines[0]}"""
     assert lines[1] == b'ok refs/heads/main\n', \
-        "expected line 2 b'ok refs/heads/main\n', got: {}".format(lines[1])
+        f"""expected line 2 b'ok refs/heads/main\n', got: {lines[1]}"""
     return (remote_sha1, missing)
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
     sub_parsers = parser.add_subparsers(dest='command', metavar='command')
     sub_parsers.required = True
