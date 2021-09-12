@@ -2,7 +2,7 @@ document.getElementById("querybutton").addEventListener("click", function () {
   let val = document.getElementById("shellquery").value;
   console.log("input value -> ", val);
   let port_no = window.location.host.split(":")[1];
-  let url = "http://localhost:".concat(port_no, " ");
+  let url = "http://localhost:".concat(port_no, "/");
   fetch(url, {
     method: "POST",
     headers: {

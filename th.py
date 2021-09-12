@@ -103,12 +103,7 @@ def read_object(sha1_prefix):
 
 
 def cat_file(mode, sha1_prefix):
-    """Write the contents of (or info about) object with given SHA-1 prefix to
-    stdout. If mode is 'commit', 'tree', or 'blob', print raw data bytes of
-    object. If mode is 'size', print the size of the object. If mode is
-    'type', print the type of the object. If mode is 'pretty', print a
-    prettified version of the object.
-    """
+
     obj_type, data = read_object(sha1_prefix)
     if mode in ['commit', 'tree', 'blob']:
         if obj_type != mode:

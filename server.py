@@ -2,7 +2,6 @@ import http.server
 import socketserver
 import argparse
 import os
-from urllib import parse
 import json
 
 
