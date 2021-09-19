@@ -4,16 +4,48 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TH</title>
+    <title>VisGit</title>
+    <link rel="stylesheet" href="style.css">
   </head>
   <body>
+<header class="headr">
+  <div>
+		<h1 class="logo"><a href="#">VisGit</a></h1>
+  </div>    
+  <div>
+<ul class="main-nav">
+       <div>
+          <li><a href="#">Home</a></li>
+      </div>  
+      <div>
+          <li><a href="#">About</a></li>
+     </div> 
+     <div>     
+          <li><a href="#">Docs</a></li>
+     </div>    
+     <div>   
+         <li><a href="#">Contact</a></li>
+     </div>
+      </ul>
+  </div>
+	</header> 
+    <section class="Visualisation">
+      <h1>Visual</h1>
+    </section>
+ <div id="footer">   
+    <section class = "commands">
+     <h2 class="block2">Command Shell</h2>
     <input
       type="text"
       id="shellquery"
       name="shellquery"
-      placeholder="Type your command"
+      placeholder=" Enter Commands"
     />
     <button id="querybutton">Run Query</button>
-    <script src="./appbackend.js"></script>
-  </body>
+    </section>    
+     <section class="Debugger">
+            <h2>Debug</h2>
+        </section> 
+</div>
+   </body>
 </html>
