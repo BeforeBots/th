@@ -1,0 +1,15 @@
+*{
+    overflow: hidden;
+}
+#brandname{
+    color: #ffffff;
+    font-size: 25px;
+    font-family: 'nunito', sans-serif;
+    padding-left: 25px;
+}
+#details{
+    color: #ffffff;
+    font-size: 25px;
+    font-family: 'nunito',sans-serif;
+    padding-right: 25px;
+}
